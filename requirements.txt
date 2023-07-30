@@ -1,0 +1,9 @@
+# Core Library
+numpy
+tensordict
+torch
+torchrl
+hydra-core
+
+# Extensions
+tiingo
