@@ -1,8 +1,10 @@
 # Core Library
 numpy
+pandas
 tensordict
 torch
 torchrl
+PyYAML
 
 # Extensions
 tiingo
