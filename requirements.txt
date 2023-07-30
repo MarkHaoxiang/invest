@@ -3,7 +3,10 @@ numpy
 tensordict
 torch
 torchrl
-hydra-core
 
 # Extensions
 tiingo
+
+# Development
+pytest
+pylint
