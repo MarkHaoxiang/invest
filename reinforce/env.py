@@ -48,6 +48,7 @@ class AssetEnv(EnvBase):
             device=self.device
         )
         self.action_key = "action"
+        self.reward_key = "reward"
 
         self.reward_spec = UnboundedContinuousTensorSpec(shape=(*self.batch_size, 1), device=self.device)
         self.done_spec = DiscreteTensorSpec(n=2, shape=self.batch_size, dtype=torch.bool, device=self.device)
@@ -111,4 +112,4 @@ class AssetEnv(EnvBase):
     @staticmethod
     def _normalize_by_current_price(tensor: Tensor) -> Tensor:
         # Returns input normlized by the last slice
-        return tensor / tensor[-1]
+        return tensor / tensor[:, -1].unsqueeze(1)

@@ -9,8 +9,14 @@ from reinforce.data.dataloader import MockAssetDataloader
 
 class TestRollout(unittest.TestCase):
     def test_AssetEnv(self):
-        # Simple rollout
         dataloader = MockAssetDataloader()
+        env = AssetEnv(dataloader, seed=1)
+
+        # Test Normalization      
+        assert env.reset()['observation'][:, -1] == 1
+
+        # Simple rollout
+        
         env = AssetEnv(dataloader, seed=1)
         env.rollout(20)
 
@@ -36,3 +42,6 @@ class TestRollout(unittest.TestCase):
             pass
 
         collector.shutdown()
+
+        assert _td.shape == _td.batch_size
+        assert _td['next'].shape == _td.batch_size

@@ -13,7 +13,7 @@ class MockAssetDataloader(ABC):
     """ Testing
     """
     def reset(self, batch_size: int, steps: int) -> Tensor:
-        return torch.arange(batch_size * steps).reshape((batch_size, steps))
+        return (1+torch.arange(batch_size * steps)).reshape((batch_size, steps))
 
     def seed(self, seed):
         torch.manual_seed(seed)

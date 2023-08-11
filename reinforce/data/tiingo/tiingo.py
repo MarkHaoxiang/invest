@@ -42,4 +42,4 @@ class TingoAssetDataloader(AssetDataloader):
 
     def reset(self) -> Tuple[float, Sequence[float]]:
         self.ticker = random.choice(self.tickers)
-              
+ 
