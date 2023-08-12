@@ -56,6 +56,7 @@ class AssetEnv(EnvBase):
     def _reset(self, tensordict: TensorDictBase, **kwargs) -> TensorDictBase:
         # (batch_size, price history)
         self._history: Tensor = self._dataloader.reset(self.batch_size[0], self._max_steps+self._window-1).to(self.device)
+        self._history = self._history / self._history[:, 0].unsqueeze(1) # Normalization for reward - do we want to do this dynamically with current price instead?
         # Money + Value of held assets
         self._value = torch.ones(self.batch_size)
         # Proportion of funds in the asset
