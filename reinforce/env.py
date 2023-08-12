@@ -1,4 +1,5 @@
 from typing import Optional
+import logging
 
 import torch
 from torch import Tensor
@@ -36,7 +37,7 @@ class AssetEnv(EnvBase):
             self._set_seed(seed)
 
         self.observation_spec = CompositeSpec(
-            observation = UnboundedContinuousTensorSpec((*self.batch_size, self._window)),
+            observation = UnboundedContinuousTensorSpec((*self.batch_size, self._window), device=self.device),
             shape=self.batch_size,
             device=self.device
         )
@@ -50,17 +51,17 @@ class AssetEnv(EnvBase):
         self.action_key = "action"
         self.reward_key = "reward"
 
-        self.reward_spec = UnboundedContinuousTensorSpec(shape=(*self.batch_size, 1), device=self.device)
-        self.done_spec = DiscreteTensorSpec(n=2, shape=self.batch_size, dtype=torch.bool, device=self.device)
+        self.reward_spec = UnboundedContinuousTensorSpec(shape=(*self.batch_size,1), device=self.device)
+        self.done_spec = DiscreteTensorSpec(n=2, shape=(*self.batch_size, 1), dtype=torch.bool, device=self.device)
     
     def _reset(self, tensordict: TensorDictBase, **kwargs) -> TensorDictBase:
         # (batch_size, price history)
         self._history: Tensor = self._dataloader.reset(self.batch_size[0], self._max_steps+self._window-1).to(self.device)
         self._history = self._history / self._history[:, 0].unsqueeze(1) # Normalization for reward - do we want to do this dynamically with current price instead?
         # Money + Value of held assets
-        self._value = torch.ones(self.batch_size)
+        self._value = torch.ones(self.batch_size).to(self.device)
         # Proportion of funds in the asset
-        self._position = torch.zeros(self.batch_size)
+        self._position = torch.zeros(self.batch_size).to(self.device)
 
         self._episode = self._history.unfold(1, self._window, 1)
         self._episode_step = 0 
@@ -68,7 +69,7 @@ class AssetEnv(EnvBase):
         tensordict_out = TensorDict(
             {
                 "observation": AssetEnv._normalize_by_current_price(self._episode[:, self._episode_step]),
-                "done": Tensor([self.done], device=self.device).to(torch.bool).expand(self.batch_size)
+                "done": Tensor([self.done]).to(torch.bool).to(self.device).expand(self.batch_size).unsqueeze(1).clone()
             },
             batch_size=self.batch_size,
             device=self.device
@@ -81,7 +82,9 @@ class AssetEnv(EnvBase):
         
         self._episode_step += 1
         price = self._episode[:, self._episode_step][:, -1]
-
+        if torch.any(torch.isnan(price)):
+            logging.warn("NaN found in price. Clean the dataloader.")
+            price = torch.where(torch.isnan,self._episode[:, self._episode_step-1][:, -1], price)
         self._previous_value = self._value
         self._value = self._value * (1-self._position) + self._position * price
         desired_position = tensordict['action'].squeeze()
@@ -95,13 +98,14 @@ class AssetEnv(EnvBase):
         tensordict_out = TensorDict(
             {
                 "observation": AssetEnv._normalize_by_current_price(self._episode[:, self._episode_step]),
-                "reward": self._value-self._previous_value,
-                "done": Tensor([self.done], device=self.device).to(torch.bool).expand(self.batch_size)
+                "reward": (self._value-self._previous_value).unsqueeze(1),
+                "done": Tensor([self.done]).to(torch.bool).to(self.device).expand(self.batch_size).unsqueeze(1).clone()
             },
             batch_size=self.batch_size,
             device=self.device
         )
-        return tensordict_out.select().set("next", tensordict_out)
+        result = tensordict_out.select().set("next", tensordict_out)
+        return result
 
     def _set_seed(self, seed):
         self._dataloader.seed(seed)

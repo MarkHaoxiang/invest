@@ -13,6 +13,8 @@ import polygon
 from polygon.enums import TickerType
 import tiingo
 
+# TODO: The failcounter fallback should really be replaced with a proper database system
+
 class AssetDataloader(ABC):
     def reset(self, batch_size: int, steps: int) -> Tensor:
         raise NotImplementedError
@@ -39,11 +41,15 @@ class PolygonAssetDataloader(AssetDataloader, AbstractContextManager):
                  local_cache: Optional[str] = None,
                  use_only_cached: bool = True,
                  tickers: Optional[Sequence[str]] = None,
+                 price_key = 'o',
                  seed: Optional[int] = None):
         self.api_key = api_key
         if api_key is None:
             self.api_key = os.getenv("POLYGON_API_KEY")
         self.seed(seed)
+
+        assert price_key in ['o', 'vw', 'c', 'h', 'l']
+        self._price_key = price_key
 
         self._local_cache = local_cache
         self._use_only_cached = use_only_cached   
@@ -74,32 +80,20 @@ class PolygonAssetDataloader(AssetDataloader, AbstractContextManager):
     def reset(self, batch_size: int, steps: int) -> Tensor:
         tickers = self.rng.choice(self._all_tickers, size=batch_size, replace=True)        
         data = []
+        previous_success = "SPY" if "SPY" in tickers else None
         for ticker in tickers:
             fail_counter = 0
             while True:
+                price = None
                 if self._local_cache != None:
                     df = pd.read_csv(f"{self._local_cache}/{ticker}.csv")
-                    price = df['vw'].to_numpy(dtype=np.float32)
+                    price = df[self._price_key].to_numpy(dtype=np.float32)
                     try:
                         df = pd.read_csv(f"{self._local_cache}/{ticker}.csv")
-                        price = df['vw'].to_numpy(dtype=np.float32)
+                        price = df[self._price_key].to_numpy(dtype=np.float32)
                     except:
-                        price = self._stock_client.get_aggregate_bars(
-                                    ticker,
-                                    timespan='hour',
-                                    from_date=date.today()-timedelta(days=3650),
-                                    to_date=date.today(),
-                                    full_range=True
-                                )
-                        try:
-                            price = np.array([p['vw'] for p in price], dtype=np.float32)
-                        except:
-                            ticker = self.rng.choice(tickers)
-                            fail_counter += 1
-                            if fail_counter > 10:
-                                raise ValueError("Unable to find ticker with sufficient steps")
-                            continue
-                else:
+                        pass
+                if price is None:
                     price = self._stock_client.get_aggregate_bars(
                                     ticker,
                                     timespan='hour',
@@ -108,20 +102,27 @@ class PolygonAssetDataloader(AssetDataloader, AbstractContextManager):
                                     full_range=True
                                 )
                     try:
-                        price = np.array([p['vw'] for p in price], dtype=np.float32)
+                        price = np.array([p[self._price_key] for p in price], dtype=np.float32)
                     except:
                         ticker = self.rng.choice(tickers)
                         fail_counter += 1
                         if fail_counter > 10:
+                            if not previous_success is None:
+                                price = previous_success
+                                break
                             raise ValueError("Unable to find ticker with sufficient steps")
                         continue
                 if len(price) < steps:
+                    ticker = self.rng.choice(tickers)
                     fail_counter += 1
                     if fail_counter > 10:
+                        if not previous_success is None:
+                            price = previous_success
+                            break
                         raise ValueError("Unable to find ticker with sufficient steps")
-                    ticker = self.rng.choice(tickers)
                 else:
                     break
+            previous_success = price
             start = self.rng.integers(low=0, high=len(price)-steps+1)
             data.append(torch.from_numpy(price[start:start+steps]))
         return torch.stack(data)
